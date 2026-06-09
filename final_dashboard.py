@@ -368,7 +368,12 @@ def plot_dashboard_chart(
 
     extra_top_margin = 0
     if len(wrapped_lines) > 1 and not title_position.startswith("Inside"):
-        extra_top_margin = (len(wrapped_lines) - 1) * 22
+        extra_top_margin = (len(wrapped_lines) - 1) * 18
+        
+    if title_position.startswith("Inside"):
+        top_margin = 30
+    else:
+        top_margin = 55 + extra_top_margin
 
     if chart_type == "Pie":
         pie_top_break = selected_columns[0]
@@ -442,7 +447,7 @@ def plot_dashboard_chart(
     fig.update_layout(
         width=width,
         height=height,
-        margin=dict(l=50, r=50, t=80 + extra_top_margin, b=50),
+        margin=dict(l=50, r=50, t=top_margin, b=50),
         plot_bgcolor="white",
         paper_bgcolor="white",
     )
