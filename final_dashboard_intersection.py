@@ -365,7 +365,7 @@ def rows_to_frame(table_info: dict, selected_columns: list[str]) -> pd.DataFrame
         if not is_response_answer(answer_label):
             continue
 
-        answer_label = re.sub(r'\s*\(\s*please\s+specify\s*\)', '', answer_label, flags=re.IGNORECASE)
+        answer_label = re.sub(r'\s*\([^)]*specify[^)]*\)', '', answer_label, flags=re.IGNORECASE)
         answer_label = re.sub(r'^\[[^\]]*\]\s*', '', answer_label).strip()
 
         for top_break in selected_columns:
