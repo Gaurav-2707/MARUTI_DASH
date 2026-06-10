@@ -298,15 +298,22 @@ def compute_intersection_column(table_info: dict, selected_cols: list[str]) -> s
                 bases = [to_number(base_row.get(col)) for col in selected_cols if col in base_row]
                 valid_bases = [b for b in bases if b is not None]
                 if valid_bases:
-                    prod = 1.0
-                    for b in valid_bases:
-                        prod *= b
-                    data[base_key][combined_name] = prod / (total_base ** (len(valid_bases) - 1))
+                    # Overflow-safe multiplication of ratios instead of high-power exponentiation
+                    prod = valid_bases[0]
+                    for b in valid_bases[1:]:
+                        prod *= (b / total_base)
+                    data[base_key][combined_name] = prod
                 else:
                     data[base_key][combined_name] = 0.0
 
     # 2. Compute the cell values for responses
     response_labels = [label for label in data.keys() if is_response_answer(label)]
+    
+    # Check if the calculated weighted base is 0 (or less than 0.5)
+    weighted_base = data.get("Weighted Sample", {}).get(combined_name, 0.0)
+    is_empty_base = False
+    if weighted_base is not None and weighted_base < 0.5:
+        is_empty_base = True
     
     raw_vals = {}
     sum_inputs = {col: 0.0 for col in selected_cols}
@@ -329,20 +336,22 @@ def compute_intersection_column(table_info: dict, selected_cols: list[str]) -> s
         if total_val is None or total_val <= 0:
             est = sum(col_vals) / len(col_vals)
         else:
-            prod = 1.0
-            for v in col_vals:
-                prod *= v
-            est = prod / (total_val ** (len(col_vals) - 1))
+            # Overflow-safe ratio multiplication
+            est = col_vals[0]
+            for v in col_vals[1:]:
+                est *= (v / total_val)
             
         raw_vals[label] = est
         sum_raw += est
 
-    # 3. Normalize the estimated percentages to match the average sum of the input columns.
+    # 3. Normalize percentages
     avg_sum_inputs = sum(sum_inputs.values()) / len(selected_cols) if selected_cols else 100.0
     factor = avg_sum_inputs / sum_raw if sum_raw > 0 else 1.0
     
     for label in response_labels:
-        if label in raw_vals:
+        if is_empty_base:
+            data[label][combined_name] = 0.0
+        elif label in raw_vals:
             data[label][combined_name] = raw_vals[label] * factor
             
     return combined_name
