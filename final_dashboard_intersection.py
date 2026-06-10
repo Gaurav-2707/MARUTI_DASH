@@ -864,7 +864,7 @@ unique_answers = raw_frame["Answer"].unique()
 has_unspecified = any(str(ans).lower().strip() == "unspecified" for ans in unique_answers)
 side_breaks_count = len(unique_answers) - 1 if has_unspecified else len(unique_answers)
 metric_1.metric("Side Breaks", side_breaks_count)
-metric_2.metric("Top Breaks", len(selected_columns))
+metric_2.metric("Groups", len(selected_columns))
 
 # Extract correct sample base from weighted sample row based on selected columns/intersection
 unique_active_cols = []
