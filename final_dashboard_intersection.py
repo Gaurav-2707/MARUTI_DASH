@@ -4,9 +4,6 @@ import openpyxl
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from openpyxl.chart import BarChart, LineChart, PieChart, Reference
-from openpyxl.utils import get_column_letter
-
 
 AGENCY_COLUMNS = {"IPSOS", "KANTAR"}
 NON_RESPONSE_ROWS = {
@@ -615,71 +612,6 @@ def plot_dashboard_chart(
             trace.name = "<br>".join(textwrap.wrap(trace.name, width=30))
 
     return fig
-
-
-def create_chart_workbook(
-    chart_type: str,
-    chart_frame: pd.DataFrame,
-    selected_columns: list[str],
-    chart_title: str,
-    axis_label: str,
-    chart_size_name: str,
-) -> bytes:
-    workbook = openpyxl.Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Chart Data"
-
-    export_frame = build_wide_frame(chart_frame).rename(columns={"Answer": "Side Breaks"})
-    worksheet.append(list(export_frame.columns))
-    for row in export_frame.itertuples(index=False):
-        worksheet.append(list(row))
-
-    for column_cells in worksheet.columns:
-        column_letter = get_column_letter(column_cells[0].column)
-        max_width = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
-        worksheet.column_dimensions[column_letter].width = min(max(max_width + 2, 12), 45)
-
-    if len(export_frame) == 0 or len(export_frame.columns) < 2:
-        output = BytesIO()
-        workbook.save(output)
-        output.seek(0)
-        return output.getvalue()
-
-    if chart_type == "Pie":
-        chart = PieChart()
-        chart.title = chart_title
-        labels = Reference(worksheet, min_col=1, min_row=2, max_row=len(export_frame) + 1)
-        values = Reference(worksheet, min_col=2, min_row=1, max_row=len(export_frame) + 1)
-        chart.add_data(values, titles_from_data=True)
-        chart.set_categories(labels)
-    elif chart_type == "Line":
-        chart = LineChart()
-        chart.title = chart_title
-        chart.y_axis.title = axis_label
-        chart.x_axis.title = "Side Breaks"
-        data = Reference(worksheet, min_col=2, max_col=len(export_frame.columns), min_row=1, max_row=len(export_frame) + 1)
-        categories = Reference(worksheet, min_col=1, min_row=2, max_row=len(export_frame) + 1)
-        chart.add_data(data, titles_from_data=True)
-        chart.set_categories(categories)
-    else:
-        chart = BarChart()
-        chart.type = "bar" if chart_type == "Horizontal bar" else "col"
-        chart.title = chart_title
-        chart.y_axis.title = axis_label if chart_type != "Horizontal bar" else "Side Breaks"
-        chart.x_axis.title = "Side Breaks" if chart_type != "Horizontal bar" else axis_label
-        data = Reference(worksheet, min_col=2, max_col=len(export_frame.columns), min_row=1, max_row=len(export_frame) + 1)
-        categories = Reference(worksheet, min_col=1, min_row=2, max_row=len(export_frame) + 1)
-        chart.add_data(data, titles_from_data=True)
-        chart.set_categories(categories)
-
-    chart.width, chart.height = EXCEL_CHART_SIZES[chart_size_name]
-    worksheet.add_chart(chart, "H2")
-
-    output = BytesIO()
-    workbook.save(output)
-    output.seek(0)
-    return output.getvalue()
-
 
 st.markdown(
     """
