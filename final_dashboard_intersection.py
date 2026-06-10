@@ -720,11 +720,9 @@ with st.sidebar:
     st.header("Dashboard Controls")
     st.success(f"Parsed {len(table_ids)} tables")
 
-    search_text = st.text_input("Search question", placeholder="Example: gender, Q68, awareness")
     filtered_ids = [
         table_id
         for table_id in table_ids
-        if search_text.lower() in table_label(table_id, tables).lower()
     ]
 
     if not filtered_ids:
@@ -836,17 +834,6 @@ with st.sidebar:
     pie_label_mode = st.selectbox("Pie labels", ["Label + percentage", "Percentage only", "Label only"])
 
     st.markdown("---")
-    st.subheader("Data Export")
-    import json
-    parsed_json = json.dumps(tables, indent=4)
-    st.download_button(
-        label="Download parsed_tables.json",
-        data=parsed_json,
-        file_name="parsed_tables.json",
-        mime="application/json",
-        use_container_width=True,
-        help="Export the parsed workbook data to update the static dashboard_app.py data file."
-    )
 
 if not selected_columns:
     st.error("Choose at least one top break for this question.")
@@ -894,7 +881,7 @@ for i, col in enumerate(unique_active_cols):
     u_str = f"{u_base:,.0f}" if isinstance(u_base, (int, float)) else str(u_base)
     
     base_records.append({
-        "Group": f"Group {i+1}" if len(unique_active_cols) > 1 else "Selected Group",
+        "Group": f"Group {i+1}",
         "Top Break Selection": col,
         "Weighted Sample Base": w_str,
         "Unweighted Sample Base": u_str
