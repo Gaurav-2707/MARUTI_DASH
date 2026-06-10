@@ -42,7 +42,7 @@ EXCEL_CHART_SIZES = {
 
 
 st.set_page_config(
-    page_title="Maruti Survey Upload Dashboard",
+    page_title="Maruti Survey Dashboard",
     layout="wide",
     initial_sidebar_state="expanded",
 )
