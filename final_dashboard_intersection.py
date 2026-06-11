@@ -972,7 +972,7 @@ with ai_insights_placeholder:
             if "last_context" in st.session_state and st.session_state["last_context"] == serialized_context and "last_insights_df" in st.session_state:
                 df_insights = st.session_state["last_insights_df"]
             else:
-                with st.spinner("🤖 Analyst is compiling structured insights table..."):
+                with st.spinner("Analyst is compiling structured insights table..."):
                     try:
                         insights_list = generate_insights_json(serialized_context, api_key)
                         df_insights = pd.DataFrame(insights_list)
