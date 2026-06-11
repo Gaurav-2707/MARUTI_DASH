@@ -54,8 +54,8 @@ def to_number(value) -> float | None:
 
 def clean_title(text: str) -> str:
     cleaned = str(text).strip()
-    cleaned = re.sub(r'^\s*[a-z0-9_.-]+\s*\.\s*', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\s*\([^)]*\)\s*', ' ', cleaned)
+    cleaned = re.sub(r'^\s*[a-z0-9_.-]*\s*\.\s*', '', cleaned, flags=re.IGNORECASE)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 
@@ -133,7 +133,7 @@ def parse_uploaded_excel(file_bytes: bytes) -> dict:
             r_idx = start_idx + offset
             if r_idx >= len(rows):
                 break
-            if rows[r_idx] and any(v == "Total" for v in rows[r_idx]):
+            if rows[r_idx] and any(str(v).strip().upper() == "TOTAL" for v in rows[r_idx] if v is not None):
                 header_break_idx = r_idx
                 break
                 
@@ -165,8 +165,10 @@ def parse_uploaded_excel(file_bytes: bytes) -> dict:
                     continue
                     
                 sub_str = str(sub).strip()
-                if sub_str in ["Total", "IPSOS", "KANTAR"]:
-                    column_headers[col_idx] = sub_str
+                if sub_str.upper() == "TOTAL":
+                    column_headers[col_idx] = "Total"
+                elif sub_str.upper() in ["IPSOS", "KANTAR"]:
+                    column_headers[col_idx] = sub_str.upper()
                 elif current_parent:
                     column_headers[col_idx] = f"{current_parent}: {sub_str}"
                 else:
