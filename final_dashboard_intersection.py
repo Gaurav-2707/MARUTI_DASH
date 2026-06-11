@@ -268,6 +268,7 @@ def is_response_answer(answer: str) -> bool:
         or normalized_answer in NON_RESPONSE_ROWS
         or answer_upper.startswith("BASE")
         or normalized_answer.startswith("BASE")
+        or "SIGMA" in answer_upper
     )
     return not is_non_response_row
 
@@ -315,8 +316,9 @@ def compute_intersection_column(table_info: dict, selected_cols: list[str]) -> s
         is_empty_base = True
     
     raw_vals = {}
-    sum_inputs = {col: 0.0 for col in selected_cols}
     sum_raw = 0.0
+    
+    sum_inputs = {col: 0.0 for col in selected_cols}
     
     for label in response_labels:
         row_vals = data[label]
