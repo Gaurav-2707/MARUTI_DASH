@@ -839,7 +839,7 @@ if round_values:
 
 chart_frame_data = raw_frame[
     (raw_frame["Answer"].str.lower().str.strip() != "unspecified") &
-    (~raw_frame["Answer"].str.contains(r'(top\s*2\s*box|bottom\s*2\s*box|top\s*two\s*box|bottom\s*two\s*box|t2b|b2b)', case=False, regex=True))
+    (~raw_frame["Answer"].str.contains(r'(top\s*2\s*box|bottom\s*2\s*box|top\s*two\s*box|bottom\s*two\s*box|top\s*box|bottom\s*box|t2b|b2b)', case=False, regex=True))
 ]
 if show_all:
     chart_frame = sorted_chart_frame(chart_frame_data, sort_order)
