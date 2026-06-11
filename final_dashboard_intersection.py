@@ -4,6 +4,12 @@ import openpyxl
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import json
+import os
+import threading
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 
 AGENCY_COLUMNS = {"IPSOS", "KANTAR"}
 NON_RESPONSE_ROWS = {
@@ -617,6 +623,45 @@ def plot_dashboard_chart(
 
     return fig
 
+
+def generate_insights_json(serialized_context: str, api_key: str) -> list:
+    system_prompt = (
+        "You are a Senior Strategic Market Research Consultant specializing in the Indian consumer market, "
+        "specifically the automotive sector (Maruti Suzuki landscape). You are analyzing survey chart data.\n\n"
+        "Provide exactly 3 highly actionable, market-specific insights. "
+        "Do not simply translate or repeat the chart data (do not just state 'X is Y%'). Instead, "
+        "synthesize the percentages to explain the underlying consumer psychology, socioeconomic drivers, "
+        "or regional preferences (e.g., Tier-1 vs Tier-4 differences, zone-specific behaviors like North vs South) "
+        "unique to the Indian market.\n\n"
+        "You must output your response ONLY as a valid JSON array of exactly 3 objects. Do not include any introductory text, markdown block wraps (like ```json), or conversational filler. "
+        "IMPORTANT: Inside the JSON string values, do not use double quotes. Use single quotes if you need to quote something. Ensure all string values are strictly single-line and do not contain raw newlines. The JSON array must conform to the following schema:\n"
+        "[\n"
+        "  {{\n"
+        "    \"Topic\": \"Brief label of the analyzed segment/topic (e.g., North Zone, Tier 4 Cities)\",\n"
+        "    \"Insight\": \"Synthesis of consumer psychology and socioeconomic drivers behind the data (1-2 sentences).\",\n"
+        "    \"Takeaway\": \"Actionable recommendation for Maruti Suzuki product positioning or marketing (1-2 sentences).\",\n"
+        "    \"Data Reference\": \"Specific supporting percentages/bases cited from the data.\"\n"
+        "  }}\n"
+        "]"
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("user", "Here is the chart data:\n{serialized_context}")
+    ])
+    
+    model = ChatOpenAI(
+        model="meta/llama-3.1-8b-instruct",
+        openai_api_base="https://integrate.api.nvidia.com/v1",
+        openai_api_key=api_key,
+        temperature=0.2,
+        max_tokens=600
+    )
+    
+    chain = prompt | model | JsonOutputParser()
+    return chain.invoke({"serialized_context": serialized_context})
+
+
 st.markdown(
     """
     <style>
@@ -802,6 +847,42 @@ else:
     chart_frame = sorted_chart_frame(top_answers(chart_frame_data, top_n), sort_order)
 wide_frame = build_wide_frame(raw_frame)
 
+# Construct the clean, lightweight context data structure representing the visible data
+responses_dict = {}
+for _, row in chart_frame.iterrows():
+    ans = str(row["Answer"])
+    col = str(row["Top Breaks"])
+    val = row["Value"]
+    if ans not in responses_dict:
+        responses_dict[ans] = {}
+    responses_dict[ans][col] = val
+
+sample_bases = {}
+for col in active_columns:
+    w_base = selected_table.get("data", {}).get("Weighted Sample", {}).get(col, None)
+    u_base = selected_table.get("data", {}).get("Unweighted Sample", {}).get(col, None)
+    sample_bases[col] = {
+        "Weighted Sample Base": w_base,
+        "Unweighted Sample Base": u_base
+    }
+
+context_data = {
+    "question": clean_title(table_label(selected_table_id, tables)),
+    "columns": active_columns,
+    "chartType": chart_type,
+    "responses": responses_dict,
+    "sampleBases": sample_bases
+}
+serialized_context = json.dumps(context_data, indent=2)
+
+# Set up API key
+api_key = os.environ.get("NV_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets.get("NV_API_KEY")
+    except Exception:
+        pass
+
 st.subheader(clean_title(table_label(selected_table_id, tables)))
 metric_1, metric_2 = st.columns(2)
 
@@ -838,7 +919,7 @@ st.dataframe(base_df, hide_index=True, use_container_width=True)
 
 if chart_type == "Pie" and len(active_columns) > 1:
     st.info(f"Pie chart is showing {active_columns[0]}. Choose only one top break for a different pie.")
-
+    
 fig = plot_dashboard_chart(
     chart_type=chart_type,
     chart_frame=chart_frame,
@@ -862,9 +943,61 @@ st.plotly_chart(
     config={"toImageButtonOptions": {"filename": download_filename}}
 )
 
+# Placeholder container right below the Plotly chart for non-blocking AI insights loading
+ai_insights_placeholder = st.container()
+
 st.divider()
 st.subheader("Data")
 sort_column = "Total" if "Total" in wide_frame.columns else active_columns[0]
 if sort_column in wide_frame.columns:
     wide_frame = wide_frame.sort_values(sort_column, ascending=False)
 st.dataframe(wide_frame.rename(columns={"Answer": "Side Breaks"}), hide_index=True, use_container_width=True)
+
+with ai_insights_placeholder:
+    with st.container(border=True):
+        st.markdown("### AI Survey Analyst Insights")
+        if not api_key:
+            st.warning("⚠️ **API Key Missing**")
+            st.info(
+                "To enable automatic AI insights, please configure the `NV_API_KEY` "
+                "environment variable or Streamlit secret. "
+                "\n\n**How to add the key:**"
+                "\n- **Locally:** Create `.streamlit/secrets.toml` and set:\n"
+                "  `NV_API_KEY = \"your_api_key\"`"
+                "\n- **In Deployment:** Add `NV_API_KEY` to the Secrets or Environment Variables "
+                "section of your hosting dashboard."
+            )
+        else:
+            df_insights = None
+            if "last_context" in st.session_state and st.session_state["last_context"] == serialized_context and "last_insights_df" in st.session_state:
+                df_insights = st.session_state["last_insights_df"]
+            else:
+                with st.spinner("🤖 Analyst is compiling structured insights table..."):
+                    try:
+                        insights_list = generate_insights_json(serialized_context, api_key)
+                        df_insights = pd.DataFrame(insights_list)
+                        
+                        # Verify and ensure correct columns exist
+                        expected_cols = ["Topic", "Insight", "Takeaway", "Data Reference"]
+                        for col in expected_cols:
+                            if col not in df_insights.columns:
+                                df_insights[col] = ""
+                        df_insights = df_insights[expected_cols]
+                        
+                        # Cache the result in session state
+                        st.session_state["last_context"] = serialized_context
+                        st.session_state["last_insights_df"] = df_insights
+                    except Exception as e:
+                        st.error(f"Failed to generate structured insights: {e}")
+                        # Display raw exception context if available
+                        if 'insights_list' in locals() and insights_list:
+                            st.write(insights_list)
+
+            if df_insights is not None:
+                st.table(
+                    df_insights.rename(columns={
+                        "Insight": "Insight & Consumer Psychology",
+                        "Takeaway": "Strategic Takeaway",
+                        "Data Reference": "Data Reference"
+                    }).set_index('Topic')
+                )
