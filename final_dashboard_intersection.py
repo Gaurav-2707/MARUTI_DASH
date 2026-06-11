@@ -834,13 +834,19 @@ if raw_frame.empty:
     st.warning("This question has no numeric data for the selected top breaks.")
     st.stop()
 
+raw_frame = raw_frame[
+    (raw_frame["Answer"].str.lower().str.strip() != "unspecified") &
+    (~raw_frame["Answer"].str.contains(r'(?:top\s*2\s*box|botto[mn]\s*2\s*box|top\s*two\s*box|botto[mn]\s*two\s*box|top\s*box|botto[mn]\s*box|t2b|b2b)', case=False, regex=True))
+]
+
+if raw_frame.empty:
+    st.warning("This question has no numeric data for the selected top breaks after filtering.")
+    st.stop()
+
 if round_values:
     raw_frame["Value"] = raw_frame["Value"].round(0).astype(int)
 
-chart_frame_data = raw_frame[
-    (raw_frame["Answer"].str.lower().str.strip() != "unspecified") &
-    (~raw_frame["Answer"].str.contains(r'(top\s*2\s*box|bottom\s*2\s*box|top\s*two\s*box|bottom\s*two\s*box|top\s*box|bottom\s*box|t2b|b2b)', case=False, regex=True))
-]
+chart_frame_data = raw_frame
 if show_all:
     chart_frame = sorted_chart_frame(chart_frame_data, sort_order)
 else:
