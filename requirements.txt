@@ -55,3 +55,4 @@ websockets==16.0
 langchain
 langchain-core
 langchain-openai
+supabase

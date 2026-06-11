@@ -11,6 +11,39 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
+# Supabase Storage Integration Helpers
+def get_supabase_client():
+    url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    key = st.secrets.get("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY")
+    if url and key:
+        try:
+            from supabase import create_client
+            return create_client(url, key)
+        except Exception as e:
+            st.error(f"Error initializing Supabase client: {e}")
+    return None
+
+
+def list_supabase_files() -> list[str]:
+    client = get_supabase_client()
+    if client:
+        try:
+            res = client.storage.from_("surveys").list()
+            return sorted([item['name'] for item in res if item.get('name', '').lower().endswith(('.xlsx', '.xlsm'))])
+        except Exception as e:
+            st.warning(f"Could not load files from Supabase Storage: {e}")
+    return []
+
+def download_supabase_file(name: str) -> bytes | None:
+    client = get_supabase_client()
+    if client:
+        try:
+            return client.storage.from_("surveys").download(name)
+        except Exception as e:
+            st.error(f"Error downloading {name} from Supabase: {e}")
+    return None
+
+
 AGENCY_COLUMNS = {"IPSOS", "KANTAR"}
 NON_RESPONSE_ROWS = {
     "UNWEIGHTED SAMPLE",
@@ -679,19 +712,94 @@ st.markdown(
 
 st.title("Maruti Survey Dashboard")
 
-uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx", "xlsm"])
-if uploaded_file is None:
-    st.session_state["last_file_bytes"] = None
-    st.info("Upload the summary Excel file to begin.")
+# Try to list files from Supabase Storage
+supabase_files = list_supabase_files()
+
+if supabase_files:
+    # If files exist in Supabase, show a selectbox
+    selected_file = st.selectbox("Select Survey File to Analyze", supabase_files)
+    
+    if "last_file_name" not in st.session_state:
+        st.session_state["last_file_name"] = None
+    if "last_file_bytes" not in st.session_state:
+        st.session_state["last_file_bytes"] = None
+        
+    if st.session_state["last_file_name"] != selected_file:
+        with st.spinner(f"Downloading {selected_file} from Supabase Storage..."):
+            file_bytes = download_supabase_file(selected_file)
+            if file_bytes is None:
+                st.error("Failed to download selected file.")
+                st.stop()
+            st.session_state["last_file_name"] = selected_file
+            st.session_state["last_file_bytes"] = file_bytes
+            st.cache_data.clear()
+    else:
+        file_bytes = st.session_state["last_file_bytes"]
+else:
+    # Diagnostic checks when Supabase listing returns empty
+    client = get_supabase_client()
+    if client:
+        try:
+            # Query the surveys bucket directly
+            try:
+                res = client.storage.from_("surveys").list()
+                
+                # Check if we got an authentication/authorization error in the response structure
+                is_auth_error = False
+                if isinstance(res, dict) and ('statusCode' in res or 'error' in res):
+                    is_auth_error = True
+                    err_msg = res.get('message') or res.get('error')
+                
+                if is_auth_error:
+                    st.error(
+                        f"❌ **Supabase Permission Error:** `{err_msg}`\n\n"
+                        "**How to fix this:**\n"
+                        "1. **Option A (easiest):** Change your `SUPABASE_KEY` in `secrets.toml` to the **service_role** key (Secret key) instead of the `anon` key. The service role key bypasses RLS policies.\n"
+                        "2. **Option B (add storage policy):** Go to your **Supabase Storage Dashboard** -> Click the **Policies** tab next to Buckets -> Under the `surveys` bucket, click **New Policy** -> Choose **Get started quickly** -> Select **Enable read access to everyone (SELECT)** -> Click Save."
+                    )
+                elif not res:
+                    st.info(
+                        "ℹ️ **Bucket 'surveys' exists but is empty (or RLS is blocking read access).**\n\n"
+                        "**To fix this:**\n"
+                        "1. Upload your survey `.xlsx` or `.xlsm` files to the bucket.\n"
+                        "2. Ensure you have added a **Storage Policy** to allow reading. Go to **Supabase Storage** -> **Policies** -> **New Policy** -> **Enable read access to everyone (SELECT)**."
+                    )
+                else:
+                    # Check if items are dictionaries or FileObjects
+                    files_found = []
+                    for item in res:
+                        if isinstance(item, dict):
+                            files_found.append(item.get('name'))
+                        elif hasattr(item, 'name'):
+                            files_found.append(item.name)
+                            
+                    files_found = [f for f in files_found if f]
+                    excel_files = [f for f in files_found if f.lower().endswith(('.xlsx', '.xlsm'))]
+                    
+                    if not excel_files:
+                        st.warning(f"ℹ️ **Bucket has files, but none match .xlsx or .xlsm extensions:** `{files_found}`")
+                    else:
+                        st.success("🎉 Found Excel files in storage, reloading...")
+                        st.rerun()
+            except Exception as bucket_err:
+                st.error(
+                    f"❌ **Error accessing bucket 'surveys':** {bucket_err}\n\n"
+                    "**How to fix this:**\n"
+                    "1. Go to your **Supabase Storage Dashboard** -> Click the **Policies** tab -> Under the `surveys` bucket, click **New Policy** -> Choose **Get started quickly** -> Select **Enable read access to everyone (SELECT)** -> Click Save.\n"
+                    "2. Alternatively, use your project's **service_role** key (secret key) as the `SUPABASE_KEY` in `secrets.toml` which bypasses all policies."
+                )
+        except Exception as conn_err:
+            st.error(
+                f"❌ **Failed to connect to Supabase API:** {conn_err}\n\n"
+                "Please check if your `SUPABASE_URL` and `SUPABASE_KEY` are correct."
+            )
+    else:
+        st.info("💡 **Supabase Storage not configured.**")
+        st.markdown(
+            "To fetch files directly from Supabase, configure `SUPABASE_URL` and `SUPABASE_KEY` "
+            "in your Streamlit secrets or environment variables, and ensure files are uploaded to the `surveys` bucket."
+        )
     st.stop()
-
-if "last_file_bytes" not in st.session_state:
-    st.session_state["last_file_bytes"] = None
-
-file_bytes = uploaded_file.getvalue()
-if st.session_state["last_file_bytes"] != file_bytes:
-    st.cache_data.clear()
-    st.session_state["last_file_bytes"] = file_bytes
 
 try:
     tables = parse_uploaded_excel_cached(file_bytes)
