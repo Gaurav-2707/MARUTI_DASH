@@ -6,7 +6,6 @@ import plotly.express as px
 import streamlit as st
 import json
 import os
-import threading
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -223,11 +222,14 @@ def parse_uploaded_excel(file_bytes: bytes) -> dict:
         table_data = {}
         row_idx = start_idx + data_start_offset
         
+        sigma_val = None
         while row_idx < len(rows):
             row = rows[row_idx]
             row_label = str(row[0]).strip() if row and row[0] is not None else ""
             
             if row_label.startswith("Table ") or row_label == "Sigma":
+                if row_label == "Sigma":
+                    sigma_val = row[1] if len(row) > 1 else None
                 break
                 
             if row_label in ("", " ") and all(v is None for v in row[1:]):
@@ -270,14 +272,24 @@ def parse_uploaded_excel(file_bytes: bytes) -> dict:
                                 normalized_label = "Unweighted Sample" if "un" in base_label.lower() else "Weighted Sample"
                             table_data[normalized_label] = base_data
                             
-        parsed_tables[table_num] = table_data
+        s_num = to_number(sigma_val)
+        if s_num is not None and abs(s_num - 100.0) < 0.5:
+            q_type = "single choice"
+        else:
+            q_type = "multichoice"
+            
+        parsed_tables[table_num] = {
+            "data": table_data,
+            "question_type": q_type
+        }
         
     return {
         str(table_num): {
             "title": table_titles.get(table_num, "Unknown"),
-            "data": table_data,
+            "data": val["data"],
+            "question_type": val["question_type"],
         }
-        for table_num, table_data in sorted(parsed_tables.items())
+        for table_num, val in sorted(parsed_tables.items())
     }
 
 
@@ -312,7 +324,65 @@ def is_response_answer(answer: str) -> bool:
     return not is_non_response_row
 
 
-def compute_intersection_column(table_info: dict, selected_cols: list[str]) -> str:
+def extract_q_code(text: str) -> str | None:
+    match = re.search(r'\((Q[0-9a-zA-Z_]+|UR)\)', text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    match2 = re.search(r'\b(Q\d+(?:_\d+)?)\b', text, re.IGNORECASE)
+    if match2:
+        return match2.group(1).upper()
+    return None
+
+
+def get_column_question_group(col_name: str) -> str:
+    col_upper = col_name.upper().strip()
+    q_code = extract_q_code(col_name)
+    if q_code:
+        return f"Q_{q_code}"
+    if any(zone in col_upper for zone in ["NORTH", "SOUTH", "EAST", "WEST"]):
+        return "DEM_ZONE"
+    if any(agency in col_upper for agency in ["IPSOS", "KANTAR"]):
+        return "DEM_AGENCY"
+    if any(tier in col_upper for tier in ["TIER1", "TIER2", "TIER3", "TIER4", "TIER - URBAN"]):
+        return "DEM_TIER"
+    if any(gender in col_upper for gender in ["MALE", "FEMALE"]):
+        return "DEM_GENDER"
+    if ":" in col_name:
+        return col_name.split(":")[0].strip().upper()
+    return col_upper
+
+
+def is_question_single_choice(group_name: str, all_tables: dict) -> bool:
+    if group_name in ["DEM_ZONE", "DEM_AGENCY", "DEM_TIER", "DEM_GENDER"]:
+        return True
+        
+    q_code = extract_q_code(group_name)
+    if not q_code and group_name.startswith("Q_"):
+        q_code = group_name[2:]
+        
+    if all_tables:
+        for table_id, t_info in all_tables.items():
+            title = t_info.get("title", "")
+            
+            # Match by question code
+            if q_code and q_code.lower() in table_id.lower():
+                return t_info.get("question_type", "single choice") == "single choice"
+            if q_code and q_code.lower() in title.lower():
+                return t_info.get("question_type", "single choice") == "single choice"
+                
+            # Match by clean title name
+            if len(group_name) > 3:
+                clean_grp = re.sub(r'\(Q[^\)]*\)', '', group_name, flags=re.IGNORECASE).strip().upper()
+                clean_title = re.sub(r'\(Q[^\)]*\)', '', title, flags=re.IGNORECASE).strip().upper()
+                clean_grp = re.sub(r'[^A-Z0-9]', '', clean_grp)
+                clean_title = re.sub(r'[^A-Z0-9]', '', clean_title)
+                if clean_grp and clean_grp in clean_title:
+                    return t_info.get("question_type", "single choice") == "single choice"
+                    
+    return True  # Fallback to True
+
+
+def compute_intersection_column(table_info: dict, selected_cols: list[str], all_tables: dict = None) -> str:
     """
     Computes a new intersection column for the given selected columns and
     modifies table_info['data'] in place to include the new column.
@@ -323,6 +393,31 @@ def compute_intersection_column(table_info: dict, selected_cols: list[str]) -> s
         
     combined_name = " & ".join(selected_cols)
     data = table_info.get("data", {})
+    
+    # Check for same single-choice question selection
+    has_same_single_choice = False
+    from collections import defaultdict
+    group_to_cols = defaultdict(list)
+    for col in selected_cols:
+        grp = get_column_question_group(col)
+        group_to_cols[grp].append(col)
+        
+    for grp, grp_cols in group_to_cols.items():
+        if len(grp_cols) >= 2:
+            if is_question_single_choice(grp, all_tables):
+                has_same_single_choice = True
+                break
+
+    if has_same_single_choice:
+        # Zero out bases
+        for base_key in ["Weighted Sample", "Unweighted Sample"]:
+            if base_key in data:
+                data[base_key][combined_name] = 0.0
+        # Zero out responses
+        for label in data.keys():
+            if is_response_answer(label):
+                data[label][combined_name] = 0.0
+        return combined_name
     
     # 1. Estimate base sizes for Weighted Sample and Unweighted Sample
     for base_key in ["Weighted Sample", "Unweighted Sample"]:
@@ -872,7 +967,7 @@ with st.sidebar:
                 
         if group_cols:
             if len(group_cols) >= 2:
-                combined_col = compute_intersection_column(selected_table, group_cols)
+                combined_col = compute_intersection_column(selected_table, group_cols, all_tables=tables)
                 active_columns.append(combined_col)
             else:
                 active_columns.append(group_cols[0])
