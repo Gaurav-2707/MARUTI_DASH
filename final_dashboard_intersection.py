@@ -754,23 +754,23 @@ def plot_dashboard_chart(
 
 def generate_insights_json(serialized_context: str, api_key: str) -> list:
     system_prompt = (
-        "You are a Senior Strategic Market Research Consultant specializing in the Indian consumer market, "
-        "specifically the automotive sector (Maruti Suzuki landscape). You are analyzing survey chart data.\n\n"
-        "Provide exactly 3 highly actionable, market-specific insights. "
-        "Do not simply translate or repeat the chart data (do not just state 'X is Y%'). Instead, "
-        "synthesize the percentages to explain the underlying consumer psychology, socioeconomic drivers, "
-        "or regional preferences (e.g., Tier-1 vs Tier-4 differences, zone-specific behaviors like North vs South) "
-        "unique to the Indian market.\n\n"
-        "You must output your response ONLY as a valid JSON array of exactly 3 objects. Do not include any introductory text, markdown block wraps (like ```json), or conversational filler. "
-        "IMPORTANT: Inside the JSON string values, do not use double quotes. Use single quotes if you need to quote something. Ensure all string values are strictly single-line and do not contain raw newlines. The JSON array must conform to the following schema:\n"
-        "[\n"
-        "  {{\n"
-        "    \"Topic\": \"Brief label of the analyzed segment/topic (e.g., North Zone, Tier 4 Cities)\",\n"
-        "    \"Insight\": \"Synthesis of consumer psychology and socioeconomic drivers behind the data (1-2 sentences).\",\n"
-        "    \"Takeaway\": \"Actionable recommendation for Maruti Suzuki product positioning or marketing (1-2 sentences).\",\n"
-        "    \"Data Reference\": \"Specific supporting percentages/bases cited from the data.\"\n"
-        "  }}\n"
-        "]"
+        """You are a Senior Strategic Market Research Consultant specializing in the Indian consumer market, 
+        specifically the automotive sector (Maruti Suzuki landscape). You are analyzing survey chart data.\n\n
+        Provide exactly 3 highly actionable, market-specific insights. 
+        Do not simply translate or repeat the chart data (do not just state 'X is Y%'). Instead, 
+        synthesize the percentages to explain the underlying consumer psychology, socioeconomic drivers, 
+        or regional preferences
+        unique to the Indian market.\n\n
+        You must output your response ONLY as a valid JSON array of exactly 3 objects. Do not include any introductory text, markdown block wraps (like ```json), or conversational filler. 
+        IMPORTANT: Inside the JSON string values, do not use double quotes. Use single quotes if you need to quote something. Ensure all string values are strictly single-line and do not contain raw newlines. The JSON array must conform to the following schema:\n
+        [\n
+          {{\n
+            \"Topic\": \"Brief label of the analyzed segment/topic (e.g., North Zone, Tier 4 Cities)\",\n
+            \"Insight\": \"Synthesis of consumer psychology and socioeconomic drivers behind the data (1-2 sentences).\",\n
+            \"Takeaway\": \"Actionable recommendation for Maruti Suzuki product positioning or marketing (1-2 sentences).\",\n
+            \"Data Reference\": \"Specific supporting percentages/bases cited from the data.\"\n
+          }}\n
+        ]"""
     )
     
     prompt = ChatPromptTemplate.from_messages([
@@ -1085,12 +1085,10 @@ context_data = {
 serialized_context = json.dumps(context_data, indent=2)
 
 # Set up API key
-api_key = os.environ.get("NV_API_KEY")
-if not api_key:
-    try:
-        api_key = st.secrets.get("NV_API_KEY")
-    except Exception:
-        pass
+try:
+    api_key = st.secrets.get("NV_API_KEY")
+except Exception:
+    pass
 
 st.subheader(clean_title(table_label(selected_table_id, tables)))
 metric_1, metric_2 = st.columns(2)
